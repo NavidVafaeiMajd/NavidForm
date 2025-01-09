@@ -63,6 +63,7 @@ function personal_personal_reg_plugin(){
     $all_data = [];
     $all_data ['ErrorMessage'] = [];
     $all_data ['is_sent'] = true;
+    $all_data ['verify_code'] = false;
     $all_data ['result_list'] = [sanitize_email($emailReg)];
 
     if(!$nameReg || !$emailReg || !$passwordReg || !$usernameReg){
@@ -88,18 +89,31 @@ function personal_personal_reg_plugin(){
  
     if(!is_wp_error($user_id)){ // if the user exists/if creating was successful.
       $user = new WP_User( $user_id ); // load the new user
-  
+
+              
       $user->set_role('subscriber'); // give the new user a role, in this case a subscriber
       // now add your custom user meta for each data point
       $userdata = array(
         'ID' => $user_id,
         'display_name' => $nameReg,
-        );
+        );    
 
-        wp_update_user( $userdata );
-      wp_set_auth_cookie( $user_id,true, 0, 0);
-      wp_new_user_notification($user_id,null , 'both');
-      wp_set_auth_cookie( $user->ID,true, 0, 0);
+    //     wp_update_user( $userdata );
+    //   wp_set_auth_cookie( $user_id,true, 0, 0);
+    //   wp_authenticate_email_password($user_id, $emailReg, $passwordReg);
+    //   wp_set_auth_cookie( $user->ID,true, 0, 0);
+
+    // ایجاد کد تأیید
+    $verification_code = rand(100000, 999999); // کد 6 رقمی
+    // ارسال ایمیل
+    $subject = 'Your Verification Code';
+    $message = "Your verification code is: $verification_code";
+    wp_mail($emailReg , $subject, $message);
+    //change form
+    echo json_encode($all_data);
+    wp_die();
+
+
     }else{
         $all_data ['ErrorMessage'] = [$user_id->get_error_message()];
         $all_data ['is_sent'] = false;
@@ -111,9 +125,9 @@ function personal_personal_reg_plugin(){
 
 
 ////////////////////////////////////////////////////
-add_shortcode('woo_cart_shortcode_test' , 'cart_shortcode_callback_test');
+add_shortcode('login_reg_shortcode' , 'login_reg_shortcode_callback');
 
-function cart_shortcode_callback_test(){
+function login_reg_shortcode_callback(){
     ?>
     <style>
     div#login-main-content {
@@ -210,6 +224,10 @@ div#login-main-content-right-form input {
                     <p>
                         <input type="submit" class="" name="submit-reg" for="form-reg" id="submit-reg" autocomplete="username" value="ثبت نام" required aria-required="true">                            
                     </p>
+                    <p>
+                        <label for="password-reg"> رمز عبور </label>
+                        <input type="password" class="" name="password-reg" id="password-reg" autocomplete="password-reg" value="" required aria-required="true">
+                    </p>
 
                 </form>
 
@@ -243,7 +261,7 @@ div#login-main-content-right-form input {
 
                                             if(data.is_sent){
                                                 console.log("redirect");
-                                                window.location.href = "<?php if ( $myaccount_page ) {echo get_permalink( $myaccount_page );} ?>";
+                                                window.location.href = "<?php if ( get_option( 'woocommerce_myaccount_page_id' ) ) {echo get_permalink( get_option( 'woocommerce_myaccount_page_id' ) );} ?>";
                                             }else{
                                                 $("#errors").show()
                                                 $("#errors").empty()
@@ -297,9 +315,11 @@ div#login-main-content-right-form input {
                                         },
                                         success : function(data){
                                             $(' div#form-loader').hide()
-
+                                            if(data.verify_code){
+                                                $("#username-reg").parent().hide();
+                                            }
                                             if(data.is_sent){
-                                                window.location.href = "<?php if ( $myaccount_page ) {echo get_permalink( $myaccount_page );} ?>";
+                                                window.location.href = "<?php if ( get_option( 'woocommerce_myaccount_page_id' ) ) {echo get_permalink( get_option( 'woocommerce_myaccount_page_id' ) );} ?>";
 
                                             }else{
                                                 $("#errors").show()
@@ -326,6 +346,14 @@ div#login-main-content-right-form input {
                     })
                 
                 </script>
+            </div>
+            <div id="verification-form" style="display: none;">
+                <form id="verify-code-form">
+                    <label for="verification_code">Enter Verification Code:</label>
+                    <input type="text" id="verification_code" name="verification_code" required>
+                    <input type="hidden" id="user_id" name="user_id">
+                    <button type="submit">Verify</button>
+                </form>
             </div>
 
         </div>
