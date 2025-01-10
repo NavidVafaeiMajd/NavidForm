@@ -7,4 +7,3 @@
  * Author URI: navidvafaei.ir
  */
 include 'functions.php';
-

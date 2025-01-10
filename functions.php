@@ -47,7 +47,7 @@ function personal_personal_login_plugin(){
 
 }
 
-/////////////////////////////////////////////////////////////////////
+//////////////////////////////registere codes///////////////////////////////////////
 add_action('wp_ajax_personal-reg' , 'personal_personal_reg_plugin');
 
 add_action('wp_ajax_nopriv_personal-reg' , 'personal_personal_reg_plugin');
@@ -98,20 +98,19 @@ function personal_personal_reg_plugin(){
         'display_name' => $nameReg,
         );    
 
-    //     wp_update_user( $userdata );
-    //   wp_set_auth_cookie( $user_id,true, 0, 0);
-    //   wp_authenticate_email_password($user_id, $emailReg, $passwordReg);
-    //   wp_set_auth_cookie( $user->ID,true, 0, 0);
 
     // ایجاد کد تأیید
-    $verification_code = rand(100000, 999999); // کد 6 رقمی
-    // ارسال ایمیل
-    $subject = 'Your Verification Code';
-    $message = "Your verification code is: $verification_code";
-    wp_mail($emailReg , $subject, $message);
-    //change form
-    echo json_encode($all_data);
-    wp_die();
+        $verification_code = rand(100000, 999999); // کد 6 رقمی
+        update_user_meta($user_id, 'verification_code', $verification_code);
+        // ارسال ایمیل
+        $subject = 'Your Verification Code';
+        $message = "Your verification code is: $verification_code";
+        wp_mail($emailReg , $subject, $message);
+        //change form
+        $all_data['ErrorMessage'] = [];
+        $all_data['is_sent'] = true;
+        $all_data['user_id'] = $user_id;
+        $all_data['result_list'] = ['Verification code sent to email.'];
 
 
     }else{
@@ -122,9 +121,57 @@ function personal_personal_reg_plugin(){
     wp_die();
 
 }
+//////////////////////verify code /////////////////////
 
+add_action('wp_ajax_verify_user_code', 'verify_user_code');
+add_action('wp_ajax_nopriv_verify_user_code', 'verify_user_code');
 
-////////////////////////////////////////////////////
+function verify_user_code() {
+    $user_id = intval($_POST['user_id']);
+    $entered_code = sanitize_text_field($_POST['verification_code']);
+
+    // دریافت کد ذخیره‌شده
+    $saved_code = get_user_meta($user_id, 'verification_code', true);
+
+    $response = array(
+        'is_verified' => false,
+        'ErrorMessage' => ''
+    );
+
+    if ($entered_code === $saved_code) {
+        // تأیید موفقیت‌آمیز
+        update_user_meta($user_id, 'is_verified', true);
+        delete_user_meta($user_id, 'verification_code');
+
+      wp_set_auth_cookie( $user_id,true, 0, 0);
+        $response['is_verified'] = true;
+    } else {
+        $response['ErrorMessage'] = 'Invalid verification code.';
+    }
+
+    echo json_encode($response);
+    wp_die();
+}
+
+//////////////////////////////////////////////
+
+add_filter('authenticate', 'block_unverified_users', 30, 3);
+function block_unverified_users($user, $username, $password) {
+    if (is_wp_error($user)) {
+        return $user;
+    }
+
+    $is_verified = get_user_meta($user->ID, 'is_verified', true);
+    if (!$is_verified) {
+        wp_delete_user($user->ID);
+        return new WP_Error('not_verified', __('به علت احراز نکردن هویت خود داخل سیستم حساب شما پاک میشود ، لطفا دوباره حساب جدیدی بسازید'));
+
+    }
+
+    return $user;
+}
+
+/////////////////////////////////////////////////////
 add_shortcode('login_reg_shortcode' , 'login_reg_shortcode_callback');
 
 function login_reg_shortcode_callback(){
@@ -224,13 +271,13 @@ div#login-main-content-right-form input {
                     <p>
                         <input type="submit" class="" name="submit-reg" for="form-reg" id="submit-reg" autocomplete="username" value="ثبت نام" required aria-required="true">                            
                     </p>
-                    <p>
-                        <label for="password-reg"> رمز عبور </label>
-                        <input type="password" class="" name="password-reg" id="password-reg" autocomplete="password-reg" value="" required aria-required="true">
-                    </p>
-
                 </form>
-
+                <form action="" method="post" id="verify-code-form" style="display: none;">
+                    <label for="verification_code">Enter Verification Code:</label>
+                    <input type="text" id="verification_code" name="verification_code" required>
+                    <input type="hidden" id="user_id" name="user_id">
+                    <button type="submit" id="verify-code-form-sub">Verify</button>
+                </form>
                 <script>
                     $(document).ready(function(){
                         $(' div#form-loader').hide()
@@ -315,12 +362,11 @@ div#login-main-content-right-form input {
                                         },
                                         success : function(data){
                                             $(' div#form-loader').hide()
-                                            if(data.verify_code){
-                                                $("#username-reg").parent().hide();
-                                            }
                                             if(data.is_sent){
-                                                window.location.href = "<?php if ( get_option( 'woocommerce_myaccount_page_id' ) ) {echo get_permalink( get_option( 'woocommerce_myaccount_page_id' ) );} ?>";
-
+                                                // window.location.href = "<?php if ( get_option( 'woocommerce_myaccount_page_id' ) ) {echo get_permalink( get_option( 'woocommerce_myaccount_page_id' ) );} ?>";
+                                                $('#user_id').val(data.user_id); // ذخیره user_id برای فرم تأیید
+                                                $('#form-reg').hide();
+                                                $('#verify-code-form').show();
                                             }else{
                                                 $("#errors").show()
                                                 $("#errors").empty()
@@ -342,19 +388,38 @@ div#login-main-content-right-form input {
                                             
                                         }
                                     })
-                                })        
+                            })        
+
+                            $('#verify-code-form-sub').click(function(e) {
+                            e.preventDefault();
+                            let ajaxURL = '<?php echo admin_url('admin-ajax.php');?>'; 
+                            let code = jQuery('#verification_code').val();
+                            let user_id = jQuery('#user_id').val();
+
+                            
+                            $.ajax({
+                                url: ajaxURL,
+                                type: 'POST',
+                                data: {
+                                    action: 'verify_user_code',
+                                    verification_code: code,
+                                    user_id: user_id
+                                },
+                                success: function(response) {
+                                    let data = JSON.parse(response);
+                                    if (data.is_verified) {
+                                        window.location.href = "<?php if ( get_option( 'woocommerce_myaccount_page_id' ) ) {echo get_permalink( get_option( 'woocommerce_myaccount_page_id' ) );} ?>";
+                                    } else {
+                                        alert(data.ErrorMessage);
+                                    }
+                                }
+                            });
+                        });
                     })
                 
                 </script>
             </div>
-            <div id="verification-form" style="display: none;">
-                <form id="verify-code-form">
-                    <label for="verification_code">Enter Verification Code:</label>
-                    <input type="text" id="verification_code" name="verification_code" required>
-                    <input type="hidden" id="user_id" name="user_id">
-                    <button type="submit">Verify</button>
-                </form>
-            </div>
+
 
         </div>
     </div>
